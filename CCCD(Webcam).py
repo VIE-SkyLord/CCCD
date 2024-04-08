@@ -116,9 +116,10 @@ class VideoCapture:
         return f"Tỉnh thành: {province_name}\nThế kỷ: {century_prefix}\nNăm sinh: {year_of_birth_full}\nID ngẫu nhiên: {random_id}"
 
 pytesseract.pytesseract.tesseract_cmd = r'D:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+queue_frame_lenght = 7;
 
 cap = VideoCapture(0)
-last_10_cmnd = deque(maxlen=10)
+last_queue_cccd = deque(maxlen=10)
 # Tạo cửa sổ mới
 cv2.namedWindow("Output")
 
@@ -141,10 +142,10 @@ while True:
         if matches:
             last_match = matches[-1]
             cmnd_number = last_match[-12:] if len(last_match) > 12 else last_match
-            last_10_cmnd.append(cmnd_number)
+            last_queue_cccd.append(cmnd_number)
 
-        if len(last_10_cmnd) == 10:
-            counter = Counter(last_10_cmnd)
+        if len(last_queue_cccd) == queue_frame_lenght:
+            counter = Counter(last_queue_cccd)
             most_common_cmnd, _ = counter.most_common(1)[0]
             # print("Số CMND:", most_common_cmnd)
             # Vẽ kết quả lên khung hình
@@ -185,7 +186,7 @@ while True:
         cap.stop()
         break
     elif key == ord('r'):
-        last_10_cmnd.clear()  # Đặt lại last_10_cmnd
+        last_queue_cccd.clear()  # Đặt lại last_10_cmnd
         cv2.putText(image, "CMND number: ", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
 cap.cap.release()

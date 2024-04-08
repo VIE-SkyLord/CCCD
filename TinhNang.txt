@@ -1,22 +1,18 @@
 NHÓM 7 - Bài tập 8
 * Tính năng chính(nhận dạng số CCCD)
 1. Nhận dạng được số CCCD (Hoàn thành)
-- Xác định phổ ảnh bằng histogram
-- tiền xử lý ảnh
+- tiền xử lý ảnh(hoàn thành)
 - fix bug nhận dạng sai số căn cước có cả chữ, bằng cách lấy 12 số cuối trong chuỗi (hoàn thành)
 * Tính năng phụ
-2. Xoay ảnh
-- Xác định cạnh của CCCD
-- Xác định góc của CCCD
-- Xác định tâm xoay của CCCD
-3. Hiện kết quả lên mà hình, thay vì trên console
+2. Hiện kết quả lên mà hình, thay vì trên console(Hoàn thành)
 - Hiện số CCCD gần số CCCD trong ảnh
-- Hiện danh sách ảnh lên cửa sổ (bản đọc file ảnh)
-4. Đọc cấu trúc 6 số đầu
+- Hiện thông tin phân tích cấu trúc CCCD
+3. Đọc cấu trúc CCCD(Hoàn thành)
 - đọc 3 số đầu để phát hiện tỉnh thành
-- số tiếp theo để phát hiện thế kỉ 19 hoặc 20
+- số tiếp theo để phát hiện thế kỉ 20 hoặc 21
 - hai số cuối cùng để đọc năm sinh
-5. Soạn tài liệu
+- sáu số còn lại là số định danh ngẫu nhiên
+4. Soạn tài liệu
 
 import cv2
 import pytesseract

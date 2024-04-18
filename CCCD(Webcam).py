@@ -116,10 +116,10 @@ class VideoCapture:
         return f"Tỉnh thành: {province_name}\nThế kỷ: {century_prefix}\nNăm sinh: {year_of_birth_full}\nID ngẫu nhiên: {random_id}"
 
 pytesseract.pytesseract.tesseract_cmd = r'D:\\Program Files\\Tesseract-OCR\\tesseract.exe'
-queue_frame_lenght = 7;
+queue_frame_lenght = 5;
 
 cap = VideoCapture(0)
-last_queue_cccd = deque(maxlen=10)
+last_queue_cccd = deque(maxlen=queue_frame_lenght)
 # Tạo cửa sổ mới
 cv2.namedWindow("Output")
 
@@ -175,7 +175,7 @@ while True:
 
             # Hiển thị hình ảnh
             cv2.imshow("Output", output_image)
-            # break
+            
         cv2.imshow('Webcam', image)
     else:
         print("Không thể đọc ảnh từ webcam!")
@@ -186,7 +186,7 @@ while True:
         cap.stop()
         break
     elif key == ord('r'):
-        last_queue_cccd.clear()  # Đặt lại last_10_cmnd
+        last_queue_cccd.clear() 
         cv2.putText(image, "CMND number: ", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
 cap.cap.release()

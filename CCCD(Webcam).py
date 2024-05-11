@@ -16,6 +16,8 @@ import threading
 #thư viện Hiển thị text Tiếng Việt
 from PIL import ImageFont, ImageDraw, Image
 
+import tkinter as tk
+
 class VideoCapture:
     def __init__(self, src=0):
         self.cap = cv2.VideoCapture(src)
@@ -135,6 +137,7 @@ class VideoCapture:
         #trả về thông tin khai thác được từ số căn cước công dân
         return f"Tỉnh thành: {province_name}\nThế kỷ: {century_prefix}\nNăm sinh: {year_of_birth_full}\nID ngẫu nhiên: {random_id}"
 
+#vẽ thông tin CCCD
 def draw_infoCCCD(output_text):
     output_image = np.zeros((500, 500, 3), np.uint8)
 
@@ -159,86 +162,141 @@ def draw_infoCCCD(output_text):
     # Hiển thị thông tin số CCCD
     cv2.imshow("Output", output_image)
 
+#Tiền xử lý ảnh
+def preProcesingImage(image):
+    #Chuyển sang ảnh xám
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    #Làm mịn ảnh
+    blur_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+    #chuyển sang ảnh nhị phân bằng tách ngưỡng Gaussian
+    resultImage = cv2.adaptiveThreshold(blur_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+    return resultImage
+
 #sử dụng ORC Tesseract được cài đặt trên máy thông qua đường dẫn tuyệt đối
 pytesseract.pytesseract.tesseract_cmd = r'D:\\Program Files\\Tesseract-OCR\\tesseract.exe'
 #kích thước bộ nạp
 queue_frame_lenght = 5
 
-#khai báo đối tượng
-cap = VideoCapture(0)
-#khai báo bộ nạp deque
-adapter_deque_cccd = deque(maxlen=queue_frame_lenght)
-# Tạo cửa sổ mới
-cv2.namedWindow("Output")
+def update_queue_frame_length():
+    global queue_frame_lenght
+    try:
+        new_length = int(queue_length_entry.get())
 
-#lặp từng frame
-while True:
-    #đọc frame
-    ret, image = cap.read()
-    if ret:
-        #Tiền xử lý ảnh
+        queue_frame_lenght = new_length
+        text_box.insert(tk.END, "cap nhat thanh cong\n")
+        text_box.update()
+    except ValueError:
+        text_box.insert(tk.END,"khong phai 1 so\n")
+        text_box.update()
 
-        #Chuyển sang ảnh xám
-        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        #Làm mịn ảnh
-        gray_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
-        #chuyển sang ảnh nhị phân bằng tách ngưỡng Gaussian
-        gray_image = cv2.adaptiveThreshold(gray_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
 
-        #khai báo chiều dài, rộng của ảnh
-        h, w = gray_image.shape
-        boxes = pytesseract.image_to_boxes(gray_image)
-        for b in boxes.splitlines():
-            b = b.split(' ')
-            #đóng hộp kí tự nhận dạng
-            img = cv2.rectangle(image, (int(b[1]), h - int(b[2])), (int(b[3]), h - int(b[4])), (0, 255, 0), 2)
+def run_ocr():
+    #khai báo đối tượng
+    cap = VideoCapture(0)
+    #khai báo bộ nạp deque
+    adapter_deque_cccd = deque(maxlen=queue_frame_lenght)
 
-        #Nhận dạng số căn cước
-        cmnd_number = pytesseract.image_to_string(gray_image, config="--oem 1 --psm 3 tessedit_char_whitelist=0123456789")
-        matches = re.findall(r'\d{12,}', cmnd_number)
-        if matches:
-            last_match = matches[-1]
-            #lấy 12 số với CCCD mới, 12 số đuôi với CCCD cũ (chữ bị liền với 12 số nên phải cắt bỏ)
-            cmnd_number = last_match[-12:] if len(last_match) > 12 else last_match
-            #nạp vào bộ nạp
-            adapter_deque_cccd.append(cmnd_number)
+    text_box.delete(1.0, tk.END)
+    # Tạo cửa sổ mới
+    #cv2.namedWindow("Output")
 
-        #Bộ nạp đầy
-        if len(adapter_deque_cccd) == queue_frame_lenght:
-            counter = Counter(adapter_deque_cccd)
-            #kết quả là số CCCD xuất hiện nhiều nhất trong bộ nạp
-            most_common_cmnd, _ = counter.most_common(1)[0]
-            # print("Số CMND:", most_common_cmnd)
-            # Vẽ số CCCD lên Frame
-            cv2.putText(image, "CMND number: " + most_common_cmnd, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0),
-                        2, cv2.LINE_AA)
+    #lặp từng frame
+    while True:
+        #đọc frame
+        ret, image = cap.read()
+        if ret:
+            #Tiền xử lý ảnh
+            processed_image = preProcesingImage(image)
+
+            #khai báo chiều dài, rộng của ảnh
+            h, w = processed_image.shape
+            boxes = pytesseract.image_to_boxes(processed_image)
+            for b in boxes.splitlines():
+                b = b.split(' ')
+                #đóng hộp kí tự nhận dạng
+                img = cv2.rectangle(image, (int(b[1]), h - int(b[2])), (int(b[3]), h - int(b[4])), (0, 255, 0), 2)
+
+            #Nhận dạng số căn cước
+            cmnd_number = pytesseract.image_to_string(processed_image, config="--oem 1 --psm 3 tessedit_char_whitelist=0123456789")
+            matches = re.findall(r'\d{12,}', cmnd_number)
+            if matches:
+                last_match = matches[-1]
+                #lấy 12 số với CCCD mới, 12 số đuôi với CCCD cũ (chữ bị liền với 12 số nên phải cắt bỏ)
+                cmnd_number = last_match[-12:] if len(last_match) > 12 else last_match
+                #nạp vào bộ nạp
+                adapter_deque_cccd.append(cmnd_number)
+
+            #Bộ nạp đầy
+            if len(adapter_deque_cccd) == queue_frame_lenght:
+                counter = Counter(adapter_deque_cccd)
+                #kết quả là số CCCD xuất hiện nhiều nhất trong bộ nạp
+                most_common_cmnd, _ = counter.most_common(1)[0]
+                # print("Số CMND:", most_common_cmnd)
+                # Vẽ số CCCD lên Frame
+                cv2.putText(image, "CMND number: " + most_common_cmnd, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0),
+                            2, cv2.LINE_AA)
+                # Hiển thị thông tin về số CCCD trên cửa sổ mới
+                output_text = cap.parse_cmnd(most_common_cmnd)
+                captured_output = output_text
+                text_box.delete(1.0, tk.END)
+                text_box.insert(tk.END, captured_output)
+                text_box.update()
+                draw_infoCCCD(output_text)
+            
+            #video frame ảnh màu
+            cv2.imshow('Webcam', image)
+        else:
+            print("Không thể đọc ảnh từ webcam!")
+            time.sleep(0.01)  # Tạm dừng 1 giây trước khi thử lại
+
+        #chờ phím
+        key = cv2.waitKey(1) & 0xFF
+        #nút thoát
+        if key == ord('q'):
+            cap.stop()
+            break
+        #nút reset
+        elif key == ord('r'):
+            #reset lại bộ nạp
+            adapter_deque_cccd.clear()
+            #reset hiển thị số CCCD
+            most_common_cmnd = ""
+            #reset hiển thị thông tin CCCD
             # Hiển thị thông tin về số CCCD trên cửa sổ mới
-            output_text = cap.parse_cmnd(most_common_cmnd)
+            output_text = cap.reset()
+            #vẽ thông tin CCCD lên cửa sổ
             draw_infoCCCD(output_text)
-        
-        #video frame ảnh màu
-        cv2.imshow('Webcam', image)
-    else:
-        print("Không thể đọc ảnh từ webcam!")
-        time.sleep(0.01)  # Tạm dừng 1 giây trước khi thử lại
+            
+            text_box.delete(1.0, tk.END)
+            text_box.update()
+            
 
-    #chờ phím
-    key = cv2.waitKey(1) & 0xFF
-    #nút thoát
-    if key == ord('q'):
-        cap.stop()
-        break
-    #nút reset
-    elif key == ord('r'):
-        adapter_deque_cccd.clear()
-        #reset hiển thị số CCCD
-        most_common_cmnd = ""
-        #reset hiển thị thông tin CCCD
-        # Hiển thị thông tin về số CCCD trên cửa sổ mới
-        output_text = cap.reset()
-        draw_infoCCCD(output_text)
-        
+    #giải phóng bộ nhớ
+    cap.cap.release()
+    cv2.destroyAllWindows()
+    
+root = tk.Tk()
+root.title("OCR with OpenCV and Tesseract")
 
-#giải phóng bộ nhớ
-cap.cap.release()
-cv2.destroyAllWindows()
+left_frame = tk.Frame(root)
+left_frame.pack(side=tk.LEFT, padx=10, pady=10)
+
+
+run_button = tk.Button(left_frame, text="Start OCR", command=run_ocr)
+run_button.pack(anchor=tk.W, padx=5, pady=5)
+
+right_frame = tk.Frame(root)
+right_frame.pack(side=tk.RIGHT, padx=10, pady=10)
+
+text_box = tk.Text(right_frame, height=20, width=40)
+text_box.pack()
+
+queue_length_entry = tk.Entry(left_frame)
+queue_length_entry.insert(tk.END, str(queue_frame_lenght))
+queue_length_entry.pack(anchor=tk.W, padx=5, pady=5)
+
+update_button = tk.Button(left_frame, text="Update Queue Length", command=update_queue_frame_length)
+update_button.pack(anchor=tk.W, padx=5, pady=5)
+
+root.mainloop()
+

@@ -1,21 +1,11 @@
-from queue import Full
-#Thư viện OpenCV
 import cv2
-#Thư viện xử lý số
 import numpy as np
-#thư viện ORC
 import pytesseract
-#thư viện xử lý chuỗi
 import re
-#thư viện bộ nạp
-from collections import deque, Counter
-#thư viện thời gian
-import time
-#thư viện phân luồng
 import threading
-#thư viện Hiển thị text Tiếng Việt
-from PIL import ImageFont, ImageDraw, Image
-
+import time
+from collections import deque, Counter
+from PIL import ImageFont, ImageDraw, Image, ImageTk
 import tkinter as tk
 
 class VideoCapture:
@@ -23,7 +13,6 @@ class VideoCapture:
         self.cap = cv2.VideoCapture(src)
         self.ret, self.frame = self.cap.read()
         self.is_running = True
-        #luồng 2
         threading.Thread(target=self.update, args=()).start()
 
     def update(self):
@@ -35,11 +24,10 @@ class VideoCapture:
 
     def stop(self):
         self.is_running = False
+        self.cap.release()
     
     def reset(self):
-        #trả về thông tin khai thác được từ số căn cước công dân
-        return f"Tỉnh thành: \nThế kỷ: \nNăm sinh: \nID ngẫu nhiên: "
-
+        return "Tỉnh thành: \nThế kỷ: \nNăm sinh: \nID ngẫu nhiên: "
 
     def parse_cmnd(self, cmnd):
         if len(cmnd) != 12:
@@ -50,7 +38,6 @@ class VideoCapture:
         year_of_birth = cmnd[4:6]
         random_id = cmnd[6:]
 
-        #Thư viện mã tỉnh
         province_codes = {
             "001": "Hà Nội",
             "002": "Hà Giang",
@@ -116,187 +103,240 @@ class VideoCapture:
             "095": "Bạc Liêu",
             "096": "Cà Mau"
         }
-        #thư viện mã thế kỉ
+
         century_codes = {
             "1": "XX",
             "2": "XXI"
         }
-        #thư viện năm sinh
+
         def year_of_birth_codes(century):
             if century == "XX":
                 return "19"
             else:
                 return "20"
 
-        # Tra cứu tên tỉnh từ mã tỉnh
         province_name = province_codes.get(province_code, "Không xác định")
-        # Tra cứu thế kỷ từ mã thế kỷ
         century_prefix = century_codes.get(century, "Không xác định")
-        # Tra cứu năm sinh từ mã năm sinh
         year_of_birth_full = year_of_birth_codes(century_prefix) + year_of_birth
-        #trả về thông tin khai thác được từ số căn cước công dân
+
         return f"Tỉnh thành: {province_name}\nThế kỷ: {century_prefix}\nNăm sinh: {year_of_birth_full}\nID ngẫu nhiên: {random_id}"
 
-#vẽ thông tin CCCD
+def adjust_gamma(image, gamma=1.0):
+    inv_gamma = 1.0 / gamma
+    table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+    return cv2.LUT(image, table)
+
 def draw_infoCCCD(output_text):
     output_image = np.zeros((500, 500, 3), np.uint8)
-
-    # Chuyển đổi hình ảnh sang định dạng PIL
     output_image_pil = Image.fromarray(cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB))
-
-        # Tạo một đối tượng 'draw' để vẽ lên hình ảnh
     draw = ImageDraw.Draw(output_image_pil)
-
-        # Chọn font và kích thước font
     font = ImageFont.truetype("arial.ttf", 34)
 
-    # Vẽ mỗi dòng văn bản
     y = 250
     for line in output_text.split('\n'):
         draw.text((10, y), line, font=font, fill=(255, 255, 255, 0))
-        y += 40  # Di chuyển xuống cho dòng tiếp theo
+        y += 40
 
-    # Chuyển đổi hình ảnh trở lại định dạng OpenCV ảnh màu
     output_image = cv2.cvtColor(np.array(output_image_pil), cv2.COLOR_RGB2BGR)
-
-    # Hiển thị thông tin số CCCD
     cv2.imshow("Output", output_image)
 
-#Tiền xử lý ảnh
+def draw_cccd_number(image, cccd_number):
+    fontpath = "arial.ttf"
+    image_font = ImageFont.truetype(fontpath, 34)
+    
+    org = (10, 40)
+    color = (255, 255, 255)
+
+    image_pil = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+    draw = ImageDraw.Draw(image_pil)
+    
+    draw.text(org, cccd_number, font=image_font, fill=color)
+    
+    image = cv2.cvtColor(np.array(image_pil), cv2.COLOR_RGB2BGR)
+    
+    return image
+
 def preProcesingImage(image):
-    #Chuyển sang ảnh xám
     gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    #Làm mịn ảnh
     blur_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
-    #chuyển sang ảnh nhị phân bằng tách ngưỡng Gaussian
     resultImage = cv2.adaptiveThreshold(blur_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
     return resultImage
 
-#sử dụng ORC Tesseract được cài đặt trên máy thông qua đường dẫn tuyệt đối
 pytesseract.pytesseract.tesseract_cmd = r'D:\\Program Files\\Tesseract-OCR\\tesseract.exe'
-#kích thước bộ nạp
-queue_frame_lenght = 5
+queue_frame_length = 5
 
 def update_queue_frame_length():
-    global queue_frame_lenght
+    global queue_frame_length
     try:
         new_length = int(queue_length_entry.get())
-
-        queue_frame_lenght = new_length
-        text_box.insert(tk.END, "cap nhat thanh cong\n")
+        queue_frame_length = new_length
+        text_box.insert(tk.END, "Cập nhật thành công\n")
         text_box.update()
     except ValueError:
-        text_box.insert(tk.END,"khong phai 1 so\n")
+        text_box.insert(tk.END,"Không phải là một số\n")
         text_box.update()
 
+def detectBox(processed_image, image, cmnd_number):
+    bounding_box = findBoundingBox(processed_image, cmnd_number)
+    if bounding_box is not None:
+        x_min, y_min, x_max, y_max = bounding_box
+        image = cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+    return image
 
-def run_ocr():
-    #khai báo đối tượng
-    cap = VideoCapture(0)
-    #khai báo bộ nạp deque
-    adapter_deque_cccd = deque(maxlen=queue_frame_lenght)
+def findBoundingBox(processed_image, target_text):
+    boxes = pytesseract.image_to_boxes(processed_image)
+    x_min, y_min, x_max, y_max = float('inf'), float('inf'), 0, 0
+    for b in boxes.splitlines():
+        b = b.split(' ')
+        character = b[0]
+        if character in target_text:
+            x_min = min(x_min, int(b[1]))
+            y_min = min(y_min, int(b[2]))
+            x_max = max(x_max, int(b[3]))
+            y_max = max(y_max, int(b[4]))
+    if x_min == float('inf') or y_min == float('inf') or x_max == 0 or y_max == 0:
+        return None
+    else:
+        return int(x_min), int(y_min), int(x_max), int(y_max)
 
-    text_box.delete(1.0, tk.END)
-    # Tạo cửa sổ mới
-    #cv2.namedWindow("Output")
+def crop_id_card(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    equalized = cv2.equalizeHist(gray)
+    adjusted = adjust_gamma(equalized, gamma=1.5)
 
-    #lặp từng frame
+    # Làm mờ vùng bị khuất bởi ngón tay
+    blurred = cv2.GaussianBlur(adjusted, (15, 15), 0)
+
+    # Sử dụng Canny Edge Detection để tìm các cạnh
+    edges = cv2.Canny(blurred, 50, 150)
+
+    # Tìm các đường viền
+    contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    max_rectangle = [0, None]
+
+    for cnt in contours:
+        length = 0.02 * cv2.arcLength(cnt, True)
+        approx = cv2.approxPolyDP(cnt, length, True)
+        if len(approx) == 4:
+            area = cv2.contourArea(cnt)
+            if area > max_rectangle[0]:
+                max_rectangle = [area, cnt]
+
+    if max_rectangle[1] is None:
+        return frame
+
+    x, y, w, h = cv2.boundingRect(max_rectangle[1])
+    cv2.drawContours(frame, [max_rectangle[1]], 0, (0, 255, 0), 2)
+
+    # Xác định các điểm góc của hình chữ nhật
+    rect = cv2.minAreaRect(max_rectangle[1])
+    box = cv2.boxPoints(rect)
+    box = np.int0(box)
+
+    # Sắp xếp các điểm góc theo thứ tự
+    box = sorted(box, key=lambda x: (x[1], x[0]))
+
+    if box[0][0] > box[1][0]:
+        box[0], box[1] = box[1], box[0]
+    if box[2][0] < box[3][0]:
+        box[2], box[3] = box[3], box[2]
+
+    # Áp dụng phép biến đổi phối cảnh để cắt thẻ CCCD
+    width = max(int(np.linalg.norm(box[0] - box[1])), int(np.linalg.norm(box[2] - box[3])))
+    height = max(int(np.linalg.norm(box[0] - box[2])), int(np.linalg.norm(box[1] - box[3])))
+
+    src_pts = np.array([box[0], box[1], box[3], box[2]], dtype='float32')
+    dst_pts = np.array([[0, 0], [width, 0], [0, height], [width, height]], dtype='float32')
+    M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+    cropped_image = cv2.warpPerspective(frame, M, (width, height))
+
+    return cropped_image
+
+def detect_and_draw_rectangles(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blur, 50, 150)
+
+    contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    for contour in contours:
+        if cv2.contourArea(contour) > 1000:
+            approx = cv2.approxPolyDP(contour, 0.02 * cv2.arcLength(contour, True), True)
+            if len(approx) == 4:
+                cv2.drawContours(image, [approx], 0, (0, 255, 0), 2)
+    return image
+
+def update_queue_length_and_detect():
+    update_queue_frame_length()
+    detectCCCDfromFrame()
+
+def detectCCCDfromFrame():
+    cap = VideoCapture()
+    cmnd_pattern = re.compile(r'\b\d{12}\b')
+    queue_frame = deque(maxlen=queue_frame_length)
+
     while True:
-        #đọc frame
-        ret, image = cap.read()
-        if ret:
-            #Tiền xử lý ảnh
-            processed_image = preProcesingImage(image)
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-            #khai báo chiều dài, rộng của ảnh
-            h, w = processed_image.shape
-            boxes = pytesseract.image_to_boxes(processed_image)
-            for b in boxes.splitlines():
-                b = b.split(' ')
-                #đóng hộp kí tự nhận dạng
-                img = cv2.rectangle(image, (int(b[1]), h - int(b[2])), (int(b[3]), h - int(b[4])), (0, 255, 0), 2)
+        image = frame.copy()
+        processed_image = preProcesingImage(image)
+        image = detect_and_draw_rectangles(image)
+        cmnd_text = pytesseract.image_to_string(processed_image)
+        cmnd_numbers = cmnd_pattern.findall(cmnd_text)
+        cmnd_numbers = list(set(cmnd_numbers))
 
-            #Nhận dạng số căn cước
-            cmnd_number = pytesseract.image_to_string(processed_image, config="--oem 1 --psm 3 tessedit_char_whitelist=0123456789")
-            matches = re.findall(r'\d{12,}', cmnd_number)
-            if matches:
-                last_match = matches[-1]
-                #lấy 12 số với CCCD mới, 12 số đuôi với CCCD cũ (chữ bị liền với 12 số nên phải cắt bỏ)
-                cmnd_number = last_match[-12:] if len(last_match) > 12 else last_match
-                #nạp vào bộ nạp
-                adapter_deque_cccd.append(cmnd_number)
+        if cmnd_numbers:
+            queue_frame.extend(cmnd_numbers)
 
-            #Bộ nạp đầy
-            if len(adapter_deque_cccd) == queue_frame_lenght:
-                counter = Counter(adapter_deque_cccd)
-                #kết quả là số CCCD xuất hiện nhiều nhất trong bộ nạp
-                most_common_cmnd, _ = counter.most_common(1)[0]
-                # print("Số CMND:", most_common_cmnd)
-                # Vẽ số CCCD lên Frame
-                cv2.putText(image, "CMND number: " + most_common_cmnd, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0),
-                            2, cv2.LINE_AA)
-                # Hiển thị thông tin về số CCCD trên cửa sổ mới
-                output_text = cap.parse_cmnd(most_common_cmnd)
-                captured_output = output_text
-                text_box.delete(1.0, tk.END)
-                text_box.insert(tk.END, captured_output)
-                text_box.update()
-                draw_infoCCCD(output_text)
-            
-            #video frame ảnh màu
-            cv2.imshow('Webcam', image)
+        counter = Counter(queue_frame)
+        most_common_number, count = counter.most_common(1)[0] if counter else (None, 0)
+        if count >= (queue_frame_length // 2):
+            cmnd_number = most_common_number
         else:
-            print("Không thể đọc ảnh từ webcam!")
-            time.sleep(0.01)  # Tạm dừng 1 giây trước khi thử lại
+            cmnd_number = "Đang nhận diện..."
 
-        #chờ phím
+        text_info = cap.parse_cmnd(cmnd_number)
+        draw_infoCCCD(text_info)
+        image = detectBox(processed_image, image, cmnd_number)
+        image = draw_cccd_number(image, cmnd_number)
+        
+        cropped_image = crop_id_card(frame)
+        cv2.imshow('Cropped ID Card', cropped_image)
+        
+        cv2.imshow('Video Capture', image)
         key = cv2.waitKey(1) & 0xFF
-        #nút thoát
         if key == ord('q'):
             cap.stop()
             break
-        #nút reset
         elif key == ord('r'):
-            #reset lại bộ nạp
-            adapter_deque_cccd.clear()
-            #reset hiển thị số CCCD
+            queue_frame.clear()
             most_common_cmnd = ""
-            #reset hiển thị thông tin CCCD
-            # Hiển thị thông tin về số CCCD trên cửa sổ mới
             output_text = cap.reset()
-            #vẽ thông tin CCCD lên cửa sổ
-            draw_infoCCCD(output_text)
-            
             text_box.delete(1.0, tk.END)
+            text_box.insert(tk.END, output_text)
             text_box.update()
-            
 
-    #giải phóng bộ nhớ
-    cap.cap.release()
+    cap.stop()
     cv2.destroyAllWindows()
-    
+
 root = tk.Tk()
-root.title("OCR with OpenCV and Tesseract")
+root.title("Cấu hình chiều dài hàng đợi")
+root.geometry("300x200")
 
-left_frame = tk.Frame(root)
-left_frame.pack(side=tk.LEFT, padx=10, pady=10)
+queue_length_label = tk.Label(root, text="Chiều dài hàng đợi:")
+queue_length_label.pack()
 
+queue_length_entry = tk.Entry(root)
+queue_length_entry.pack()
 
-run_button = tk.Button(left_frame, text="Start OCR", command=run_ocr)
-run_button.pack(anchor=tk.W, padx=5, pady=5)
+update_button = tk.Button(root, text="Cập nhật", command=update_queue_length_and_detect)
+update_button.pack()
 
-right_frame = tk.Frame(root)
-right_frame.pack(side=tk.RIGHT, padx=10, pady=10)
-
-text_box = tk.Text(right_frame, height=20, width=40)
+text_box = tk.Text(root, height=10, width=40)
 text_box.pack()
 
-queue_length_entry = tk.Entry(left_frame)
-queue_length_entry.insert(tk.END, str(queue_frame_lenght))
-queue_length_entry.pack(anchor=tk.W, padx=5, pady=5)
-
-update_button = tk.Button(left_frame, text="Update Queue Length", command=update_queue_frame_length)
-update_button.pack(anchor=tk.W, padx=5, pady=5)
+detect_cccd_button = tk.Button(root, text="Nhận diện CCCD", command=detectCCCDfromFrame)
+detect_cccd_button.pack()
 
 root.mainloop()
-

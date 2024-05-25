@@ -104,9 +104,18 @@ class VideoCapture:
             "096": "Cà Mau"
         }
 
+        gender_codes = {
+            "0": "Nam",
+            "1": "Nữ",
+            "2": "Nam",
+            "3": "Nữ"
+        }
+
         century_codes = {
+            "0": "XX",
             "1": "XX",
-            "2": "XXI"
+            "2": "XXI",
+            "3": "XXI"
         }
 
         def year_of_birth_codes(century):
@@ -117,9 +126,10 @@ class VideoCapture:
 
         province_name = province_codes.get(province_code, "Không xác định")
         century_prefix = century_codes.get(century, "Không xác định")
+        gender_prefix = gender_codes.get(century, "Không xác định")
         year_of_birth_full = year_of_birth_codes(century_prefix) + year_of_birth
 
-        return f"Tỉnh thành: {province_name}\nThế kỷ: {century_prefix}\nNăm sinh: {year_of_birth_full}\nID ngẫu nhiên: {random_id}"
+        return f"Tỉnh thành: {province_name}\nThế kỷ: {century_prefix}\nGiới tính: {gender_prefix}\nNăm sinh: {year_of_birth_full}\nID ngẫu nhiên: {random_id}"
 
 def adjust_gamma(image, gamma=1.0):
     inv_gamma = 1.0 / gamma
@@ -204,53 +214,33 @@ def crop_id_card(frame):
     equalized = cv2.equalizeHist(gray)
     adjusted = adjust_gamma(equalized, gamma=1.5)
 
-    # Làm mờ vùng bị khuất bởi ngón tay
-    blurred = cv2.GaussianBlur(adjusted, (15, 15), 0)
-
     # Sử dụng Canny Edge Detection để tìm các cạnh
-    edges = cv2.Canny(blurred, 50, 150)
+    edges = cv2.Canny(adjusted, 30, 150)
+
+    # Sử dụng Morphological Transformations để làm nổi bật các hình dạng mong muốn
+    kernel = np.ones((5, 5), np.uint8)
+    dilated = cv2.dilate(edges, kernel, iterations=2)
+    eroded = cv2.erode(dilated, kernel, iterations=1)
 
     # Tìm các đường viền
-    contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-    max_rectangle = [0, None]
+    contours, _ = cv2.findContours(eroded, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
 
-    for cnt in contours:
-        length = 0.02 * cv2.arcLength(cnt, True)
-        approx = cv2.approxPolyDP(cnt, length, True)
-        if len(approx) == 4:
-            area = cv2.contourArea(cnt)
-            if area > max_rectangle[0]:
-                max_rectangle = [area, cnt]
+    # Loại bỏ các contour không mong muốn dựa trên diện tích
+    min_contour_area = 1000  # Đặt ngưỡng diện tích tối thiểu
+    filtered_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > min_contour_area]
 
-    if max_rectangle[1] is None:
-        return frame
+    # Tìm contour có diện tích lớn nhất trong danh sách các contour đã lọc
+    max_contour = max(filtered_contours, key=cv2.contourArea)
 
-    x, y, w, h = cv2.boundingRect(max_rectangle[1])
-    cv2.drawContours(frame, [max_rectangle[1]], 0, (0, 255, 0), 2)
+    # Tạo mask từ contour lớn nhất
+    mask = np.zeros_like(gray)
+    cv2.drawContours(mask, [max_contour], -1, 255, -1)
 
-    # Xác định các điểm góc của hình chữ nhật
-    rect = cv2.minAreaRect(max_rectangle[1])
-    box = cv2.boxPoints(rect)
-    box = np.int0(box)
+    # Áp dụng mask cho ảnh gốc
+    result = cv2.bitwise_and(frame, frame, mask=mask)
 
-    # Sắp xếp các điểm góc theo thứ tự
-    box = sorted(box, key=lambda x: (x[1], x[0]))
+    return result
 
-    if box[0][0] > box[1][0]:
-        box[0], box[1] = box[1], box[0]
-    if box[2][0] < box[3][0]:
-        box[2], box[3] = box[3], box[2]
-
-    # Áp dụng phép biến đổi phối cảnh để cắt thẻ CCCD
-    width = max(int(np.linalg.norm(box[0] - box[1])), int(np.linalg.norm(box[2] - box[3])))
-    height = max(int(np.linalg.norm(box[0] - box[2])), int(np.linalg.norm(box[1] - box[3])))
-
-    src_pts = np.array([box[0], box[1], box[3], box[2]], dtype='float32')
-    dst_pts = np.array([[0, 0], [width, 0], [0, height], [width, height]], dtype='float32')
-    M = cv2.getPerspectiveTransform(src_pts, dst_pts)
-    cropped_image = cv2.warpPerspective(frame, M, (width, height))
-
-    return cropped_image
 
 def detect_and_draw_rectangles(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)

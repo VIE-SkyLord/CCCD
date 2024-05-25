@@ -5,7 +5,7 @@ import re
 import threading
 import time
 from collections import deque, Counter
-from PIL import ImageFont, ImageDraw, Image, ImageTk
+from PIL import ImageFont, ImageDraw, Image
 import tkinter as tk
 
 class VideoCapture:
@@ -167,8 +167,11 @@ def draw_cccd_number(image, cccd_number):
     return image
 
 def preProcesingImage(image):
+    # Chuyển ảnh sang ảnh xám
     gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    # Làm mờ ảnh để giảm nhiễu
     blur_image = cv2.GaussianBlur(gray_image, (5, 5), 0)
+    # Áp dụng phân ngưỡng cục bộ
     resultImage = cv2.adaptiveThreshold(blur_image, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
     return resultImage
 
@@ -196,64 +199,68 @@ def detectBox(processed_image, image, cmnd_number):
 def findBoundingBox(processed_image, target_text):
     boxes = pytesseract.image_to_boxes(processed_image)
     x_min, y_min, x_max, y_max = float('inf'), float('inf'), 0, 0
+    found = False
+
     for b in boxes.splitlines():
-        b = b.split(' ')
-        character = b[0]
-        if character in target_text:
-            x_min = min(x_min, int(b[1]))
-            y_min = min(y_min, int(b[2]))
-            x_max = max(x_max, int(b[3]))
-            y_max = max(y_max, int(b[4]))
-    if x_min == float('inf') or y_min == float('inf') or x_max == 0 or y_max == 0:
-        return None
+        b = b.split()
+        text, x, y, w, h = b[0], int(b[1]), int(b[2]), int(b[3]), int(b[4])
+        if text in target_text:
+            found = True
+            x_min = min(x_min, x)
+            y_min = min(y_min, y)
+            x_max = max(x_max, w)
+            y_max = max(y_max, h)
+    
+    if found:
+        return x_min, y_min, x_max, y_max
     else:
-        return int(x_min), int(y_min), int(x_max), int(y_max)
+        return None
 
-def crop_id_card(frame):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    equalized = cv2.equalizeHist(gray)
-    adjusted = adjust_gamma(equalized, gamma=1.5)
-
-    # Sử dụng Canny Edge Detection để tìm các cạnh
-    edges = cv2.Canny(adjusted, 30, 150)
-
-    # Sử dụng Morphological Transformations để làm nổi bật các hình dạng mong muốn
-    kernel = np.ones((5, 5), np.uint8)
-    dilated = cv2.dilate(edges, kernel, iterations=2)
-    eroded = cv2.erode(dilated, kernel, iterations=1)
-
-    # Tìm các đường viền
-    contours, _ = cv2.findContours(eroded, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-    # Loại bỏ các contour không mong muốn dựa trên diện tích
-    min_contour_area = 1000  # Đặt ngưỡng diện tích tối thiểu
-    filtered_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > min_contour_area]
-
-    # Tìm contour có diện tích lớn nhất trong danh sách các contour đã lọc
-    max_contour = max(filtered_contours, key=cv2.contourArea)
-
-    # Tạo mask từ contour lớn nhất
-    mask = np.zeros_like(gray)
-    cv2.drawContours(mask, [max_contour], -1, 255, -1)
-
-    # Áp dụng mask cho ảnh gốc
-    result = cv2.bitwise_and(frame, frame, mask=mask)
-
-    return result
-
+def crop_corners(image, approx):
+    approx = approx.reshape(4, 2)
+    rect = np.zeros((4, 2), dtype="float32")
+    s = approx.sum(axis=1)
+    rect[0] = approx[np.argmin(s)]
+    rect[2] = approx[np.argmax(s)]
+    diff = np.diff(approx, axis=1)
+    rect[1] = approx[np.argmin(diff)]
+    rect[3] = approx[np.argmax(diff)]
+    (tl, tr, br, bl) = rect
+    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+    maxWidth = max(int(widthA), int(widthB))
+    maxHeight = max(int(heightA), int(heightB))
+    dst = np.array([
+        [0, 0],
+        [maxWidth - 1, 0],
+        [maxWidth - 1, maxHeight - 1],
+        [0, maxHeight - 1]], dtype="float32")
+    M = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
+    return warped
 
 def detect_and_draw_rectangles(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blur, 50, 150)
+    
+    cv2.imshow('Edges', edges)  # Display edges for debugging
 
     contours, _ = cv2.findContours(edges, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     for contour in contours:
-        if cv2.contourArea(contour) > 1000:
-            approx = cv2.approxPolyDP(contour, 0.02 * cv2.arcLength(contour, True), True)
+        contour_area = cv2.contourArea(contour)
+        if 600 <= contour_area:  # Check if contour area is within desired range
+            approx = cv2.approxPolyDP(contour, 0.04 * cv2.arcLength(contour, True), True)
+            print("Contour found with area:", contour_area)  # Debugging line
             if len(approx) == 4:
                 cv2.drawContours(image, [approx], 0, (0, 255, 0), 2)
-    return image
+                print("Detected rectangle:", approx)  # Debugging line
+                return approx  # Return the first detected rectangle's approx
+            
+    #print("No suitable rectangle detected")  # Debugging line
+    return None
 
 def update_queue_length_and_detect():
     update_queue_frame_length()
@@ -271,7 +278,14 @@ def detectCCCDfromFrame():
 
         image = frame.copy()
         processed_image = preProcesingImage(image)
-        image = detect_and_draw_rectangles(image)
+        approx = detect_and_draw_rectangles(image)
+        if approx is not None:
+            print("Cropping using approx:", approx)  # Debugging line
+            cropped_image = crop_corners(frame, approx)
+            cv2.imshow('Cropped Card', cropped_image)
+        else:
+            print("Approx is None")  # Debugging line
+        
         cmnd_text = pytesseract.image_to_string(processed_image)
         cmnd_numbers = cmnd_pattern.findall(cmnd_text)
         cmnd_numbers = list(set(cmnd_numbers))
@@ -291,9 +305,6 @@ def detectCCCDfromFrame():
         image = detectBox(processed_image, image, cmnd_number)
         image = draw_cccd_number(image, cmnd_number)
         
-        cropped_image = crop_id_card(frame)
-        cv2.imshow('Cropped ID Card', cropped_image)
-        
         cv2.imshow('Video Capture', image)
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
@@ -311,22 +322,27 @@ def detectCCCDfromFrame():
     cv2.destroyAllWindows()
 
 root = tk.Tk()
-root.title("Cấu hình chiều dài hàng đợi")
-root.geometry("300x200")
+root.title("CCCD Detection")
 
-queue_length_label = tk.Label(root, text="Chiều dài hàng đợi:")
+main_frame = tk.Frame(root)
+main_frame.pack(fill=tk.BOTH, expand=1)
+
+text_box = tk.Text(main_frame, height=10)
+text_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
+
+scrollbar = tk.Scrollbar(main_frame)
+scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+scrollbar.config(command=text_box.yview)
+
+text_box.config(yscrollcommand=scrollbar.set)
+
+queue_length_label = tk.Label(root, text="Queue Length:")
 queue_length_label.pack()
 
 queue_length_entry = tk.Entry(root)
 queue_length_entry.pack()
 
-update_button = tk.Button(root, text="Cập nhật", command=update_queue_length_and_detect)
+update_button = tk.Button(root, text="Update Queue Length", command=update_queue_length_and_detect)
 update_button.pack()
-
-text_box = tk.Text(root, height=10, width=40)
-text_box.pack()
-
-detect_cccd_button = tk.Button(root, text="Nhận diện CCCD", command=detectCCCDfromFrame)
-detect_cccd_button.pack()
 
 root.mainloop()
